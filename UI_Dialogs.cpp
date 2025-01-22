@@ -18,6 +18,7 @@ searchAddressBookItemDialog::searchAddressBookItemDialog(QWidget *parent) : QDia
     mainLayout->addWidget(new QLabel("Поиск по контактам:", this));
     mainLayout->addWidget(searchInput);
 
+
     QHBoxLayout *buttonLayout = new QHBoxLayout;
     buttonLayout->addWidget(searchButton);
     buttonLayout->addWidget(cancelButton);
@@ -104,7 +105,7 @@ bool addAddressBookItemDialog::validateInput() {
     }
 
     // Регулярное выражение для проверки телефона
-    QRegularExpression phoneRegex("^\\+7\\d{10}$");
+    QRegularExpression phoneRegex("^(\\+7|8)\\(?\\d{3}\\)?[ \\-]?\\d{3}[ \\-]?\\d{2}[ \\-]?\\d{2}$");
     if (!phoneRegex.match(phoneInput->text().trimmed()).hasMatch()) {
         QMessageBox::warning(this, "Ошибка", "Телефон должен быть в формате +7XXXXXXXXXX, где X — цифры.");
         return false;

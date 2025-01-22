@@ -1,4 +1,9 @@
 #include "AddressBook.hpp"
+#include <QtSql/QSqlDatabase>
+#include <QtSql/QSqlError>
+#include <QSqlQuery>
+#include <QMessageBox>
+#include <QSqlRecord>
 
 AddressBook::AddressBook(QWidget *parent) : QMainWindow(parent) {
     setupUI();
@@ -66,7 +71,7 @@ void AddressBook::setupUI() {
     centralWidget->setFixedWidth(700);
 
     // Центральный виджет
-   setCentralWidget(centralWidget);
+    setCentralWidget(centralWidget);
 
     // Коннектим сигналы со слотами
     connect(addButton, &QPushButton::clicked, this, &AddressBook::addAddressBookItem);
@@ -211,6 +216,99 @@ void AddressBook::searchAddressBookItem() {
 }
 
 void AddressBook::loadAddressBook() {
+
+    /*
+ * **************************************
+ * Выполняем подключение к базе данных
+ * **************************************
+*/
+    QSqlDatabase db;
+    db = QSqlDatabase::addDatabase("QSQLITE");
+    db.setDatabaseName("C:/sqlite_db/address_book.db");
+
+    if (!db.open()) {
+        QMessageBox::critical(this, "Ошибка!", "Ошибка подключения к БД: " + db.lastError().text());
+        return;
+    }
+
+    /*
+     * Всегда пытаемся создать таблицу. Если она создана, то просто уведомим пользователя что таблицам найдена.
+     * Конечно же в реальной программе нам не нужно будет об этом сообщать пользователю.
+     */
+    QSqlQuery query;
+    QString queryStr = "CREATE TABLE address_book (lastname VARCHAR(80), "
+                       "firstname VARCHAR(80), patronymic VARCHAR(80), "
+                       "phone_list VARCHAR(120), email VARCHAR(80), birthday VARCHAR(30));";
+    bool ret = query.exec(queryStr);
+    if (!ret) {
+        QString errText = query.lastError().text();
+        QRegularExpression nameRegex("already exists");
+        if (nameRegex.match(errText).hasMatch()) {
+            QMessageBox::information(this, "Внимание!", "Таблица контактов в БД найдена.");
+        } else {
+            QMessageBox::critical(this, "Ошибка!", "Ошибка создания таблицы адресной книги в БД.");
+            return;
+        }
+    }
+
+    /*******************************************************************************************************/
+    /*  Тестовый код для вставки в базу нового контакта
+    После тестирования нужно будет этот код закомментировать, так как добавление будет через интерфейс */
+    /*******************************************************************************************************/
+    /*
+    QSqlQuery qry;
+    qry.prepare("INSERT INTO address_book (lastname, firstname, patronymic, phone_list, email, birthday) "
+                "VALUES (:lastname, :firstname, :patronymic, :phone_list, :email, :birthday)");
+    qry.bindValue(":lastname", "Vinogradova");
+    qry.bindValue(":firstname", "Diana");
+    qry.bindValue(":patronymic", "Nikolaevna");
+    qry.bindValue(":phone_list", "+79219991999");
+    qry.bindValue(":email", "diana.vinogradova@gmail.com");
+    qry.bindValue(":birthday", "13-07-2003");
+
+    ret = qry.exec();
+    if (!ret) {
+        QString errText = qry.lastError().text();
+        QMessageBox::critical(this, "Ошибка БД", "Ошибка добавления тестой записи в таблицу БД: " + errText);
+        return;
+    }
+    */
+    /*******************************************************************************************************/
+
+    if (!query.exec("SELECT * FROM address_book")) {
+        QString errText = query.lastError().text();
+        QMessageBox::critical(this, "Ошибка!", "Ошибка запроса к таблице в БД: " + errText);
+        return;
+    }
+    QSqlRecord rec = query.record();
+    while (query.next()) {
+        Item item;
+
+        item.userLastName = query.value(rec.indexOf("lastname")).toString();
+        item.userFirstName = query.value(rec.indexOf("firstname")).toString();
+        item.userPatronymicName = query.value(rec.indexOf("patronymic")).toString();
+        item.userEmail = query.value(rec.indexOf("email")).toString();
+        item.userBirthday = query.value(rec.indexOf("birthday")).toString();
+
+        QStringList userPhonesArrayString = query.value(rec.indexOf("phone_list")).toString().split(",", Qt::SkipEmptyParts);
+        item.userPhonesList = userPhonesArrayString.toVector();
+
+        QString key = item.userLastName + " " + item.userFirstName + " " + item.userPatronymicName;
+        items[key] = item;
+
+        int row = table->rowCount();
+        table->insertRow(row);
+        table->setItem(row, 0, new QTableWidgetItem(item.userLastName));
+        table->setItem(row, 1, new QTableWidgetItem(item.userFirstName));
+        table->setItem(row, 2, new QTableWidgetItem(item.userPatronymicName));
+        table->setItem(row, 3, new QTableWidgetItem(userPhonesArrayString.join(", ")));
+        table->setItem(row, 4, new QTableWidgetItem(item.userEmail));
+        table->setItem(row, 5, new QTableWidgetItem(item.userBirthday));
+    }
+    return;
+
+    // Тут начинается чтение из файла. Когда переключим на работу с БД, нужно будет закомментировать этот код
+
     QFile file("contacts.txt");
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
         return;
@@ -253,6 +351,64 @@ void AddressBook::loadAddressBook() {
 
 
 void AddressBook::saveAddressBook() {
+
+    /*
+     * **************************************
+     * Выполняем подключение к базе данных
+     * **************************************
+    */
+    QSqlDatabase db;
+    db = QSqlDatabase::addDatabase("QSQLITE");
+    db.setDatabaseName("C:/sqlite_db/address_book.db");
+
+    if (!db.open()) {
+        QMessageBox::critical(this, "Ошибка!", "Ошибка подключения к БД: " + db.lastError().text());
+        return;
+    }
+
+    /*
+     * Понимаю, что при работе с БД мы могли бы и не удалять ВСЕ данные из таблицы, чтобы снова их добавить.
+     * Гораздо правильнее было бы просто в момент изменения менять конкретные строчки таблицы, обновляя их
+     * по уникальным идентификаторам в таблице, но текущий вариант сделать быстрее, так как нужно было
+     * всего лишь поменять два метода, load и save.
+     */
+
+    QSqlQuery query;
+    QString queryStr = "DELETE FROM address_book;";
+    bool ret = query.exec(queryStr);
+    if (!ret) {
+        QString errText = query.lastError().text();
+        QMessageBox::critical(this, "Ошибка!", "Ошибка очистики таблицы в БД: " + errText);
+        return;
+    }
+
+    for (const auto &item : items) {
+        // Вытащим из векторного массива все номера телефонов
+        QStringList userPhonesListList = QStringList::fromVector(item.userPhonesList);
+
+        QSqlQuery qry;
+        qry.prepare("INSERT INTO address_book (lastname, firstname, patronymic, phone_list, email, birthday) "
+                    "VALUES (:lastname, :firstname, :patronymic, :phone_list, :email, :birthday)");
+        qry.bindValue(":lastname", item.userLastName);
+        qry.bindValue(":firstname", item.userFirstName);
+        qry.bindValue(":patronymic", item.userPatronymicName);
+        qry.bindValue(":phone_list", userPhonesListList.join(",")); // В БД добавляем номера разделяя их запятыми
+        qry.bindValue(":email", item.userEmail);
+        qry.bindValue(":birthday", item.userBirthday);
+
+        ret = qry.exec();
+        if (!ret) {
+            QString errText = qry.lastError().text();
+            QMessageBox::critical(this, "Ошибка БД", "Ошибка добавления записи в таблицу БД: " + errText);
+            return;
+        }
+    }
+
+
+    return;
+
+    // Далее начинается сохранение в файл.
+
     QFile file("contacts.txt");
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QMessageBox::warning(this, "Ошибка", "Не удалось открыть файл для записи.");
@@ -283,22 +439,26 @@ void AddressBook::addPhoneNumber() {
         return;
     }
 
-    QString newNumber = QInputDialog::getText(this, "Добавить номер телефона", "Введите номер телефона:").trimmed();
+    QString newNumber = QInputDialog::getText(this, "Добавить номер телефона", "Введите номер телефона (+7XXXXXXXXXX):").trimmed();
 
     // Проверка формата номера
-    QRegularExpression phoneRegex("^\\+?8?\\(?\\d{3}\\)?[ \\-]?\\d{3}[ \\-]?\\d{2}[ \\-]?\\d{2}$");
+    QRegularExpression phoneRegex("^\\+7\\d{10}$");
     if (!phoneRegex.match(newNumber).hasMatch()) {
-        QMessageBox::warning(this, "Ошибка", "Телефон должен быть в одном из допустимых форматов:\n+78121234567, 88121234567, +7(812)1234567, 8(812)1234567, +7(812)123-45-67, 8(812)123-45-67.");
+        QMessageBox::warning(this, "Ошибка", "Телефон должен быть в формате +7XXXXXXXXXX.");
         return;
     }
 
-    QString itemKey = table->item(currentRow, 0)->text() + " " + table->item(currentRow, 1)->text() + " " + table->item(currentRow, 2)->text();
+    QString itemKey = table->item(currentRow, 0)->text() + " " +
+                      table->item(currentRow, 1)->text() + " " +
+                      table->item(currentRow, 2)->text();
+
     if (!items.contains(itemKey)) {
         QMessageBox::warning(this, "Ошибка", "Контакт не найден.");
         return;
     }
 
     Item &item = items[itemKey];
+
     if (item.userPhonesList.size() >= 100) {
         QMessageBox::warning(this, "Ошибка", "Нельзя добавить больше 100 номеров.");
         return;
@@ -308,6 +468,7 @@ void AddressBook::addPhoneNumber() {
 
     // Обновляем отображение в таблице
     table->setItem(currentRow, 3, new QTableWidgetItem(QStringList::fromVector(item.userPhonesList).join(", "))); // Отображаем все номера
+
     saveAddressBook();
 
     QMessageBox::information(this, "Успех", "Номер телефона успешно добавлен!");
