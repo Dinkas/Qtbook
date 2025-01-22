@@ -18,11 +18,11 @@ void AddressBook::setupUI() {
     // Создаем таблицу
     table = new QTableWidget(this);
 
-    // В таблице у нас будет 6 столбцов
-    table->setColumnCount(6);
+    // В таблице у нас будет 7 столбцов
+    table->setColumnCount(7);
 
     // Определим названия заголовков всех шести столбцов.
-    table->setHorizontalHeaderLabels(QStringList() << "ФАМИЛИЯ" << "ИМЯ" << "ОТЧЕСТВО" << "НОМЕР ТЕЛЕФОНА" << "E-MAIL" << "ДАТА РОЖДЕНИЯ");
+    table->setHorizontalHeaderLabels(QStringList() << "#" << "ФАМИЛИЯ" << "ИМЯ" << "ОТЧЕСТВО" << "НОМЕР ТЕЛЕФОНА" << "E-MAIL" << "ДАТА РОЖДЕНИЯ");
     table->setStyleSheet("QHeaderView::section { background-color:'light grey' }");
 
     // А вот и бесплатная сортировка :)
@@ -81,8 +81,6 @@ void AddressBook::setupUI() {
     connect(addPhoneNumberButton, &QPushButton::clicked, this, &AddressBook::addPhoneNumber);
 }
 
-
-
 void AddressBook::addAddressBookItem() {
     addAddressBookItemDialog dialog(this);
     if (dialog.exec() == QDialog::Accepted) {
@@ -107,17 +105,51 @@ void AddressBook::addAddressBookItem() {
         QString key = item.userLastName + " " + item.userFirstName + " " + item.userPatronymicName;
         items[key] = item;
 
+        // Надо бы вынести подключение к БД в единое место и одной строкой вызывать.
+        QSqlDatabase db;
+        db = QSqlDatabase::addDatabase("QSQLITE");
+        db.setDatabaseName("C:/sqlite_db/address_book.db");
+
+        if (!db.open()) {
+            QMessageBox::critical(this, "Ошибка!", "Ошибка подключения к БД: " + db.lastError().text());
+            return;
+        }
+
+        QSqlQuery qry;
+        qry.prepare("INSERT INTO address_book (user_id, lastname, firstname, patronymic, phone_list, email, birthday) "
+                    "VALUES (NULL, :lastname, :firstname, :patronymic, :phone_list, :email, :birthday)");
+        qry.bindValue(":lastname", item.userLastName);
+        qry.bindValue(":firstname", item.userFirstName);
+        qry.bindValue(":patronymic", item.userPatronymicName);
+        qry.bindValue(":phone_list", userPhonesListList.join(",")); // В БД добавляем номера разделяя их запятыми
+        qry.bindValue(":email", item.userEmail);
+        qry.bindValue(":birthday", item.userBirthday);
+
+        bool ret = qry.exec();
+        if (!ret) {
+            QString errText = qry.lastError().text();
+            QMessageBox::critical(this, "Ошибка БД", "Ошибка добавления записи в таблицу БД: " + errText);
+            return;
+        }
+
+        // Мы добавили в базу новый контакт. Вытащим его уникальный идентификатор (LAST_INSERT_ID)
+        QString lastInsertUserId = qry.lastInsertId().toString();
+
         // Добавляем контакт в таблицу
         int row = table->rowCount();
         table->insertRow(row);
-        table->setItem(row, 0, new QTableWidgetItem(item.userLastName));
-        table->setItem(row, 1, new QTableWidgetItem(item.userFirstName));
-        table->setItem(row, 2, new QTableWidgetItem(item.userPatronymicName));
-        table->setItem(row, 3, new QTableWidgetItem(userPhonesListList.join(", "))); // Отображаем все номера через запятую
-        table->setItem(row, 4, new QTableWidgetItem(item.userEmail));
-        table->setItem(row, 5, new QTableWidgetItem(item.userBirthday));
+        table->setItem(row, 0, new QTableWidgetItem(lastInsertUserId));
+        table->setItem(row, 1, new QTableWidgetItem(item.userLastName));
+        table->setItem(row, 2, new QTableWidgetItem(item.userFirstName));
+        table->setItem(row, 3, new QTableWidgetItem(item.userPatronymicName));
+        table->setItem(row, 4, new QTableWidgetItem(userPhonesListList.join(", "))); // Отображаем все номера через запятую
+        table->setItem(row, 5, new QTableWidgetItem(item.userEmail));
+        table->setItem(row, 6, new QTableWidgetItem(item.userBirthday));
 
-        saveAddressBook();
+        db.close();
+
+        // Теперь мы в БД добавляем запись одним запросом и полная перезапись таблицы нам не нужна
+        //saveAddressBook();
     }
 }
 
@@ -129,13 +161,14 @@ void AddressBook::editAddressBookItem() {
         return;
     }
 
-    // Получаем данные контакта из таблицы
-    QString userLastName = table->item(row, 0)->text();
-    QString userFirstName = table->item(row, 1)->text();
-    QString userPatronymicName = table->item(row, 2)->text();
-    QStringList userPhonesList = table->item(row, 3)->text().split(", "); // Разделяем номера по запятой
-    QString userEmail = table->item(row, 4)->text();
-    QString userBirthday = table->item(row, 5)->text();
+    // Получаем данные юзера из таблицы
+    QString userId = table->item(row, 0)->text();
+    QString userLastName = table->item(row, 1)->text();
+    QString userFirstName = table->item(row, 2)->text();
+    QString userPatronymicName = table->item(row, 3)->text();
+    QStringList userPhonesList = table->item(row, 4)->text().split(", "); // Разделяем номера по запятой
+    QString userEmail = table->item(row, 5)->text();
+    QString userBirthday = table->item(row, 6)->text();
 
     // Создаем список данных для передачи в диалог редактирования
     QStringList itemData = { userLastName, userFirstName, userPatronymicName, userPhonesList.join(", "), userEmail, userBirthday };
@@ -147,12 +180,12 @@ void AddressBook::editAddressBookItem() {
         QStringList updatedItemData = dialog.getItem();
 
         // Обновляем контакт в таблице
-        table->setItem(row, 0, new QTableWidgetItem(updatedItemData[0])); // Фамилия
-        table->setItem(row, 1, new QTableWidgetItem(updatedItemData[1])); // Имя
-        table->setItem(row, 2, new QTableWidgetItem(updatedItemData[2])); // Отчество
-        table->setItem(row, 3, new QTableWidgetItem(updatedItemData[3])); // Номера телефонов (объединенные через запятую)
-        table->setItem(row, 4, new QTableWidgetItem(updatedItemData[4])); // E-mail
-        table->setItem(row, 5, new QTableWidgetItem(updatedItemData[5])); // Дата рождения
+        table->setItem(row, 1, new QTableWidgetItem(updatedItemData[0])); // Фамилия
+        table->setItem(row, 2, new QTableWidgetItem(updatedItemData[1])); // Имя
+        table->setItem(row, 3, new QTableWidgetItem(updatedItemData[2])); // Отчество
+        table->setItem(row, 4, new QTableWidgetItem(updatedItemData[3])); // Номера телефонов (объединенные через запятую)
+        table->setItem(row, 5, new QTableWidgetItem(updatedItemData[4])); // E-mail
+        table->setItem(row, 6, new QTableWidgetItem(updatedItemData[5])); // Дата рождения
 
         // Обновляем данные в карте контактов
         QString key = userLastName + " " + userFirstName + " " + userPatronymicName;
@@ -164,9 +197,36 @@ void AddressBook::editAddressBookItem() {
         item.userEmail = updatedItemData[4];
         item.userBirthday = updatedItemData[5];
 
+        // Надо бы вынести подключение к БД в единое место и одной строкой вызывать.
+        QSqlDatabase db;
+        db = QSqlDatabase::addDatabase("QSQLITE");
+        db.setDatabaseName("C:/sqlite_db/address_book.db");
 
-        // Сохраняем изменения в файл
-        saveAddressBook();
+        if (!db.open()) {
+            QMessageBox::critical(this, "Ошибка!", "Ошибка подключения к БД: " + db.lastError().text());
+            return;
+        }
+
+        QSqlQuery qry;
+        qry.prepare("UPDATE address_book SET lastname=:lastname, firstname=:firstname, patronymic=:patronymic, "
+                    "phone_list=:phone_list, email=:email, birthday=:birthday WHERE user_id=:user_id");
+        qry.bindValue(":lastname", item.userLastName);
+        qry.bindValue(":firstname", item.userFirstName);
+        qry.bindValue(":patronymic", item.userPatronymicName);
+        qry.bindValue(":phone_list", updatedItemData[3]); // В БД добавляем номера разделяя их запятыми
+        qry.bindValue(":email", item.userEmail);
+        qry.bindValue(":birthday", item.userBirthday);
+        qry.bindValue(":user_id", userId);
+
+        bool ret = qry.exec();
+        if (!ret) {
+            QString errText = qry.lastError().text();
+            QMessageBox::critical(this, "Ошибка БД", "Ошибка добавления записи в таблицу БД: " + errText);
+            return;
+        }
+
+        // Теперь мы точечно обновляем запись по уникальному user_id, и полная перезапись нам не нужна
+        //saveAddressBook();
     }
 }
 
@@ -178,11 +238,33 @@ void AddressBook::delAddressBookItem() {
         return;
     }
 
-    // Получаем ключ контакта (используем фамилию, имя и отчество для идентификации)
-    QString key = table->item(row, 0)->text() + " " +
-                  table->item(row, 1)->text() + " " +
-                  table->item(row, 2)->text();
+    QString userIdForRemove = table->item(row, 0)->text();
 
+    // Получаем ключ контакта (используем фамилию, имя и отчество для идентификации)
+    QString key = table->item(row, 1)->text() + " " +
+                  table->item(row, 2)->text() + " " +
+                  table->item(row, 3)->text();
+
+    // Надо бы вынести подключение куда-нибудь и подключаться к базе одной строчкой.
+    QSqlDatabase db;
+    db = QSqlDatabase::addDatabase("QSQLITE");
+    db.setDatabaseName("C:/sqlite_db/address_book.db");
+
+    if (!db.open()) {
+        QMessageBox::critical(this, "Ошибка!", "Ошибка подключения к БД: " + db.lastError().text());
+        return;
+    }
+
+    QSqlQuery qry;
+    qry.prepare("DELETE FROM address_book WHERE user_id=:user_id");
+    qry.bindValue(":user_id", userIdForRemove);
+
+    bool ret = qry.exec();
+    if (!ret) {
+        QString errText = qry.lastError().text();
+        QMessageBox::critical(this, "Ошибка!", "Ошибка удаления записи из БД: " + errText);
+        return;
+    }
     // Удаляем контакт из словаря
     if (items.contains(key)) {
         items.remove(key);
@@ -191,8 +273,9 @@ void AddressBook::delAddressBookItem() {
     // Удаляем строку из таблицы
     table->removeRow(row);
 
+
     // Сохраняем изменения в файл
-    saveAddressBook();
+    //saveAddressBook();
 
     QMessageBox::information(this, "Успех", "Контакт успешно удален!");
 }
@@ -236,7 +319,7 @@ void AddressBook::loadAddressBook() {
      * Конечно же в реальной программе нам не нужно будет об этом сообщать пользователю.
      */
     QSqlQuery query;
-    QString queryStr = "CREATE TABLE address_book (lastname VARCHAR(80), "
+    QString queryStr = "CREATE TABLE address_book (user_id INTEGER PRIMARY KEY, lastname VARCHAR(80), "
                        "firstname VARCHAR(80), patronymic VARCHAR(80), "
                        "phone_list VARCHAR(120), email VARCHAR(80), birthday VARCHAR(30));";
     bool ret = query.exec(queryStr);
@@ -284,6 +367,7 @@ void AddressBook::loadAddressBook() {
     while (query.next()) {
         Item item;
 
+        item.userId = query.value(rec.indexOf("user_id")).toString();
         item.userLastName = query.value(rec.indexOf("lastname")).toString();
         item.userFirstName = query.value(rec.indexOf("firstname")).toString();
         item.userPatronymicName = query.value(rec.indexOf("patronymic")).toString();
@@ -298,13 +382,15 @@ void AddressBook::loadAddressBook() {
 
         int row = table->rowCount();
         table->insertRow(row);
-        table->setItem(row, 0, new QTableWidgetItem(item.userLastName));
-        table->setItem(row, 1, new QTableWidgetItem(item.userFirstName));
-        table->setItem(row, 2, new QTableWidgetItem(item.userPatronymicName));
-        table->setItem(row, 3, new QTableWidgetItem(userPhonesArrayString.join(", ")));
-        table->setItem(row, 4, new QTableWidgetItem(item.userEmail));
-        table->setItem(row, 5, new QTableWidgetItem(item.userBirthday));
+        table->setItem(row, 0, new QTableWidgetItem(item.userId));
+        table->setItem(row, 1, new QTableWidgetItem(item.userLastName));
+        table->setItem(row, 2, new QTableWidgetItem(item.userFirstName));
+        table->setItem(row, 3, new QTableWidgetItem(item.userPatronymicName));
+        table->setItem(row, 4, new QTableWidgetItem(userPhonesArrayString.join(", ")));
+        table->setItem(row, 5, new QTableWidgetItem(item.userEmail));
+        table->setItem(row, 6, new QTableWidgetItem(item.userBirthday));
     }
+    db.close();
     return;
 
     // Тут начинается чтение из файла. Когда переключим на работу с БД, нужно будет закомментировать этот код
@@ -387,8 +473,8 @@ void AddressBook::saveAddressBook() {
         QStringList userPhonesListList = QStringList::fromVector(item.userPhonesList);
 
         QSqlQuery qry;
-        qry.prepare("INSERT INTO address_book (lastname, firstname, patronymic, phone_list, email, birthday) "
-                    "VALUES (:lastname, :firstname, :patronymic, :phone_list, :email, :birthday)");
+        qry.prepare("INSERT INTO address_book (user_id, lastname, firstname, patronymic, phone_list, email, birthday) "
+                    "VALUES (NULL, :lastname, :firstname, :patronymic, :phone_list, :email, :birthday)");
         qry.bindValue(":lastname", item.userLastName);
         qry.bindValue(":firstname", item.userFirstName);
         qry.bindValue(":patronymic", item.userPatronymicName);
@@ -403,7 +489,7 @@ void AddressBook::saveAddressBook() {
             return;
         }
     }
-
+    db.close();
 
     return;
 

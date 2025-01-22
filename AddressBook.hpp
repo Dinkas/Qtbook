@@ -16,6 +16,7 @@
 #include "UI_Dialogs.h"
 
 struct Item {
+    QString userId;
     QString userLastName;
     QString userFirstName;
     QString userPatronymicName;
