@@ -31,13 +31,10 @@ QString searchAddressBookItemDialog::getSearchTerm() const {
 }
 
 
-
-
-
-
-
 addAddressBookItemDialog::addAddressBookItemDialog(QWidget *parent) : QDialog(parent) {
-    QVBoxLayout *mainLayout = new QVBoxLayout(this);
+
+    // Создается вертикальный макет QVBoxLayout, который будет управлять расположением дочерних виджетов
+     QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
     userLastNameInput = new QLineEdit(this);
     userFirstNameInput = new QLineEdit(this);
@@ -73,6 +70,7 @@ addAddressBookItemDialog::addAddressBookItemDialog(QWidget *parent) : QDialog(pa
 
     connect(cancelButton, &QPushButton::clicked, this, &addAddressBookItemDialog::reject);
 
+//Все поля ввода добавляются в основной вертикальный макет mainLayout
     mainLayout->addWidget(userLastNameInput);
     mainLayout->addWidget(userFirstNameInput);
     mainLayout->addWidget(userPatronymicNameInput);
@@ -80,6 +78,7 @@ addAddressBookItemDialog::addAddressBookItemDialog(QWidget *parent) : QDialog(pa
     mainLayout->addWidget(userEmailInput);
     mainLayout->addWidget(userBirthdayInput);
 
+    //Кнопки в горизонтальном макете
     QHBoxLayout *buttonLayout = new QHBoxLayout;
     buttonLayout->addWidget(addButton);
     buttonLayout->addWidget(cancelButton);
@@ -87,6 +86,7 @@ addAddressBookItemDialog::addAddressBookItemDialog(QWidget *parent) : QDialog(pa
     mainLayout->addLayout(buttonLayout);
 }
 
+//getItem возвращает данные, введенные пользователем, в виде списка строк QStringList
 QStringList addAddressBookItemDialog::getItem() const {
     return {userLastNameInput->text(), userFirstNameInput->text(), userPatronymicNameInput->text(),
             phoneInput->text(), userEmailInput->text(), userBirthdayInput->text()};
@@ -107,7 +107,7 @@ bool addAddressBookItemDialog::validateInput() {
     // Регулярное выражение для проверки телефона
     QRegularExpression phoneRegex("^(\\+7|8)\\(?\\d{3}\\)?[ \\-]?\\d{3}[ \\-]?\\d{2}[ \\-]?\\d{2}$");
     if (!phoneRegex.match(phoneInput->text().trimmed()).hasMatch()) {
-        QMessageBox::warning(this, "Ошибка", "Телефон должен быть в формате +7XXXXXXXXXX, где X — цифры.");
+        QMessageBox::warning(this, "Ошибка", "Телефон должен быть в формате +7(8)XXXXXXXXXX, где X — цифры.");
         return false;
     }
 
@@ -131,7 +131,7 @@ bool addAddressBookItemDialog::validateInput() {
     return true;
 }
 
-
+//диалоговое окно об удалении контакта
 delAddressBookItemDialog::delAddressBookItemDialog(QWidget *parent) : QDialog(parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
@@ -151,6 +151,7 @@ delAddressBookItemDialog::delAddressBookItemDialog(QWidget *parent) : QDialog(pa
     mainLayout->addLayout(buttonLayout);
 }
 
+//Создание диалогового окна для редактирования контакта
 
 editAddressBookItemDialog::editAddressBookItemDialog(const QStringList &item, QWidget *parent) : QDialog(parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);

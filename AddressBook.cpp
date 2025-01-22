@@ -98,7 +98,6 @@ void AddressBook::addAddressBookItem() {
             phone = phone.trimmed(); // Убираем лишние пробелы вокруг номеров
         }
         item.userPhonesList = userPhonesListList.toVector();
-
         item.userEmail = itemData[4];
         item.userBirthday = itemData[5];
 
@@ -118,6 +117,7 @@ void AddressBook::addAddressBookItem() {
         QSqlQuery qry;
         qry.prepare("INSERT INTO address_book (user_id, lastname, firstname, patronymic, phone_list, email, birthday) "
                     "VALUES (NULL, :lastname, :firstname, :patronymic, :phone_list, :email, :birthday)");
+        //Привязка значений
         qry.bindValue(":lastname", item.userLastName);
         qry.bindValue(":firstname", item.userFirstName);
         qry.bindValue(":patronymic", item.userPatronymicName);
@@ -136,6 +136,8 @@ void AddressBook::addAddressBookItem() {
         QString lastInsertUserId = qry.lastInsertId().toString();
 
         // Добавляем контакт в таблицу
+        //Сначала мы считываем количество уже существующих строк в таблице (это количество контактов) с помощью rowCount().
+        //Затем добавляем новую строку в конец таблицы с помощью insertRow(row).
         int row = table->rowCount();
         table->insertRow(row);
         table->setItem(row, 0, new QTableWidgetItem(lastInsertUserId));
@@ -206,7 +208,7 @@ void AddressBook::editAddressBookItem() {
             QMessageBox::critical(this, "Ошибка!", "Ошибка подключения к БД: " + db.lastError().text());
             return;
         }
-
+        //ОБНОВЛЕНИЕ СТРОКИ ПО USER_ID
         QSqlQuery qry;
         qry.prepare("UPDATE address_book SET lastname=:lastname, firstname=:firstname, patronymic=:patronymic, "
                     "phone_list=:phone_list, email=:email, birthday=:birthday WHERE user_id=:user_id");
@@ -237,7 +239,7 @@ void AddressBook::delAddressBookItem() {
         QMessageBox::warning(this, "Ошибка", "Выберите контакт для удаления.");
         return;
     }
-
+//Из выбранной строки извлекается уникальный идентификатор пользователя для удаления.
     QString userIdForRemove = table->item(row, 0)->text();
 
     // Получаем ключ контакта (используем фамилию, имя и отчество для идентификации)
@@ -281,22 +283,74 @@ void AddressBook::delAddressBookItem() {
 }
 
 
+
+
 void AddressBook::searchAddressBookItem() {
+    static bool searchPerformed = false; // Флаг, указывающий, был ли выполнен поиск
+
+    if (searchPerformed) {
+        // Если поиск уже выполнен, восстанавливаем видимость всех строк
+        for (int i = 0; i < table->rowCount(); ++i) {
+            table->setRowHidden(i, false); // Показываем все строки
+        }
+        searchPerformed = false; // Сбрасываем флаг
+        return; // Выходим из функции
+    }
+
     searchAddressBookItemDialog dialog(this);
     if (dialog.exec() == QDialog::Accepted) {
-        QString searchTerm = dialog.getSearchTerm();
+        QString searchTerms = dialog.getSearchTerm().trimmed();
+        QStringList termsList = searchTerms.split(",", Qt::SkipEmptyParts);
+
+        bool found = false;
         for (int i = 0; i < table->rowCount(); ++i) {
-            bool found = false;
-            for (int j = 0; j < table->columnCount(); ++j) {
-                if (table->item(i, j)->text().contains(searchTerm, Qt::CaseInsensitive)) {
-                    found = true;
-                    break;
+            QString cellText = table->item(i, 0)->text(); // Полное имя
+            QString lastName = table->item(i, 2)->text().trimmed(); // Фамилия
+            QString firstName = table->item(i, 1)->text().trimmed(); // Имя
+            QString patronymic = table->item(i, 3)->text().trimmed(); // Отчество
+            QString phone = table->item(i, 4)->text().trimmed(); // Телефон
+            QString email = table->item(i, 5)->text().trimmed(); // Email
+            QString userBirthday = table->item(i, 6)->text().trimmed(); // Дата рождения
+
+            found = false; // Сброс флага перед каждой строкой
+
+            // Проверяем каждое введённое значение
+            for (const QString &term : termsList) {
+                if (cellText.contains(term.trimmed(), Qt::CaseInsensitive) ||
+                    lastName.contains(term.trimmed(), Qt::CaseInsensitive) ||
+                    firstName.contains(term.trimmed(), Qt::CaseInsensitive) ||
+                    patronymic.contains(term.trimmed(), Qt::CaseInsensitive) ||
+                    phone.contains(term.trimmed(), Qt::CaseInsensitive) ||
+                    email.contains(term.trimmed(), Qt::CaseInsensitive) ||
+                    userBirthday.contains(term.trimmed(), Qt::CaseInsensitive)) {
+                    found = true; // Если совпадение найдено, устанавливаем флаг
+                    break; // Выходим из внутреннего цикла
                 }
             }
-            table->setRowHidden(i, !found);
+            // Логика для поиска по фамилии и имени вместе
+            QStringList nameParts = searchTerms.split(" ", Qt::SkipEmptyParts);
+            if (nameParts.size() >= 1) { // Проверяем, что введены хотя бы одна часть (фамилия или имя)
+                // Проверяем комбинацию фамилии и имени
+                if (lastName.contains(nameParts[0], Qt::CaseInsensitive)) {
+                    if (nameParts.size() == 2 && firstName.contains(nameParts[1], Qt::CaseInsensitive)) {
+                        found = true; // Если найдены обе части - устанавливаем флаг
+                    } else if (nameParts.size() == 1) {
+                        found = true; // Если только фамилия
+                    }
+                }
+            }
+            table->setRowHidden(i, !found); // Прячем строку, если совпадений нет
         }
+
+        searchPerformed = true; // Устанавливаем флаг поиска в true
     }
 }
+
+
+
+
+
+
 
 void AddressBook::loadAddressBook() {
 
@@ -358,6 +412,8 @@ void AddressBook::loadAddressBook() {
     */
     /*******************************************************************************************************/
 
+
+    //Выполняется запрос для извлечения данных из таблицы address_book и отображения их в интерфейсе
     if (!query.exec("SELECT * FROM address_book")) {
         QString errText = query.lastError().text();
         QMessageBox::critical(this, "Ошибка!", "Ошибка запроса к таблице в БД: " + errText);
@@ -495,7 +551,7 @@ void AddressBook::saveAddressBook() {
 
     // Далее начинается сохранение в файл.
 
-    QFile file("contacts.txt");
+    QFile file("C:/projects/course/contacts.txt");
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QMessageBox::warning(this, "Ошибка", "Не удалось открыть файл для записи.");
         return;
